@@ -43,8 +43,35 @@
 <body class="bg-gray-900 text-white h-screen flex flex-col font-sans">
 
   <div id="auth-overlay" class="fixed inset-0 bg-gray-900 z-50 flex flex-col items-center justify-center text-white transition-opacity duration-300">
-    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-    <p id="auth-message" class="text-gray-300 font-bold tracking-wider">クラウドに接続しています...</p>
+    
+    <div id="auth-loading" class="flex flex-col items-center">
+      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+      <p id="auth-message" class="text-gray-300 font-bold tracking-wider">認証状態を確認しています...</p>
+    </div>
+    
+    <div id="auth-form-container" class="hidden bg-gray-800 p-8 rounded-xl shadow-2xl w-96 max-w-[90%] border border-gray-700">
+      <h2 class="text-2xl font-bold mb-6 text-center text-blue-400">Live Web Editor</h2>
+      <div id="auth-error" class="hidden bg-red-500/20 text-red-400 p-3 rounded mb-4 text-sm text-center border border-red-500/50"></div>
+      
+      <div class="mb-4">
+        <label class="block text-gray-400 text-sm font-bold mb-2" for="email">メールアドレス</label>
+        <input class="shadow appearance-none border border-gray-600 rounded w-full py-2 px-3 bg-gray-700 text-white leading-tight focus:outline-none focus:border-blue-500 transition" id="email" type="email" placeholder="email@example.com">
+      </div>
+      <div class="mb-6">
+        <label class="block text-gray-400 text-sm font-bold mb-2" for="password">パスワード</label>
+        <input class="shadow appearance-none border border-gray-600 rounded w-full py-2 px-3 bg-gray-700 text-white leading-tight focus:outline-none focus:border-blue-500 transition" id="password" type="password" placeholder="********">
+      </div>
+      
+      <div class="flex flex-col gap-3">
+        <button onclick="handleLogin()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition w-full shadow-lg shadow-blue-900/50">
+          ログイン
+        </button>
+        <div class="text-center text-gray-500 text-xs my-1">または</div>
+        <button onclick="handleSignUp()" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition w-full border border-gray-600">
+          新規アカウント登録
+        </button>
+      </div>
+    </div>
   </div>
 
   <header id="header" class="bg-gray-900 border-b border-gray-800 px-4 py-2 flex justify-between items-center shadow-md z-20 transition-all duration-300">
@@ -64,6 +91,13 @@
     </div>
     
     <div class="flex items-center gap-3">
+      <button onclick="handleLogout()" class="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/40 hover:bg-red-800/80 border border-red-700/50 rounded text-xs text-red-200 transition duration-150" title="ログアウトします">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+        </svg>
+        ログアウト
+      </button>
+
       <button onclick="toggleLayoutOrder()" class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-xs transition duration-150" title="エディタとプレビューの左右を入れ替えます">
         <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
@@ -142,7 +176,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     let files = {
@@ -289,46 +323,114 @@ console.log('スクリプトが初期化されました！');`
     let isLayoutSwapped = false;
     let currentUser = null;
 
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    function showLoading(message) {
+      document.getElementById('auth-overlay').style.display = 'flex';
+      document.getElementById('auth-overlay').style.opacity = '1';
+      document.getElementById('auth-loading').style.display = 'flex';
+      document.getElementById('auth-form-container').style.display = 'none';
+      if (message) document.getElementById('auth-message').textContent = message;
+    }
+
+    function showLoginForm(errorMessage = null) {
+      document.getElementById('auth-overlay').style.display = 'flex';
+      document.getElementById('auth-overlay').style.opacity = '1';
+      document.getElementById('auth-loading').style.display = 'none';
+      document.getElementById('auth-form-container').style.display = 'block';
+      
+      const errorEl = document.getElementById('auth-error');
+      if (errorMessage) {
+        errorEl.textContent = errorMessage;
+        errorEl.style.display = 'block';
+      } else {
+        errorEl.style.display = 'none';
+      }
+    }
+
+    function hideAuth() {
+      document.getElementById('auth-overlay').style.opacity = '0';
+      setTimeout(() => document.getElementById('auth-overlay').style.display = 'none', 300);
+    }
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+      messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Authentication failed:", error);
-        document.getElementById('auth-message').textContent = '認証に失敗しました。';
-      }
-    };
 
     onAuthStateChanged(auth, async (user) => {
       if (user) {
         currentUser = user;
-        document.getElementById('auth-message').textContent = 'クラウドからデータを読み込んでいます...';
+        showLoading('クラウドからデータを読み込んでいます...');
         await loadData();
-        document.getElementById('auth-overlay').style.opacity = '0';
-        setTimeout(() => document.getElementById('auth-overlay').style.display = 'none', 300);
+        hideAuth();
       } else {
         currentUser = null;
-        document.getElementById('auth-overlay').style.display = 'flex';
-        document.getElementById('auth-overlay').style.opacity = '1';
-        document.getElementById('auth-message').textContent = 'ログインが必要です...';
+        showLoginForm();
       }
     });
 
-    initAuth();
+    showLoading('認証状態を確認しています...');
+
+    window.handleLogin = async function() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      if (!email || !password) {
+        showLoginForm('メールアドレスとパスワードを入力してください。');
+        return;
+      }
+      
+      showLoading('ログインしています...');
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (error) {
+        console.error(error);
+        let msg = 'ログインに失敗しました。';
+        if (error.code === 'auth/invalid-credential') msg = 'メールアドレスまたはパスワードが間違っています。';
+        showLoginForm(msg);
+      }
+    };
+
+    window.handleSignUp = async function() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      if (!email || !password) {
+        showLoginForm('メールアドレスとパスワードを入力してください。');
+        return;
+      }
+      if (password.length < 6) {
+        showLoginForm('パスワードは6文字以上で入力してください。');
+        return;
+      }
+      
+      showLoading('アカウントを作成しています...');
+      try {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } catch (error) {
+        console.error(error);
+        let msg = 'アカウント作成に失敗しました。';
+        if (error.code === 'auth/email-already-in-use') msg = 'このメールアドレスは既に登録されています。';
+        showLoginForm(msg);
+      }
+    };
+
+    window.handleLogout = async function() {
+      if (confirm('ログアウトしますか？')) {
+        await triggerSave(true);
+        await signOut(auth);
+      }
+    };
 
     async function loadData() {
       if (!currentUser) return;
       try {
-        const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'editor_data', 'project');
+        const docRef = doc(db, 'users', currentUser.uid, 'projects', 'default');
         const snap = await getDoc(docRef);
         
         if (snap.exists() && snap.data().filesJson) {
@@ -359,7 +461,7 @@ console.log('スクリプトが初期化されました！');`
       
       const saveAction = async () => {
         try {
-          const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'editor_data', 'project');
+          const docRef = doc(db, 'users', currentUser.uid, 'projects', 'default');
           await setDoc(docRef, { filesJson: JSON.stringify(files) });
           
           statusEl.innerHTML = '<span class="text-green-400">クラウドに保存しました</span>';
@@ -386,7 +488,7 @@ console.log('スクリプトが初期化されました！');`
       mode: 'htmlmixed',
       theme: 'monokai',
       autoCloseTags: true,
-      autoCloseBrackets: true,
+      autoCloseBrackets: true, 
       tabSize: 2,
       indentUnit: 2,
       lineWrapping: true
@@ -451,7 +553,6 @@ console.log('スクリプトが初期化されました！');`
       }
     });
 
-    
     window.setPreviewSize = function(width) {
       const activeClass = "bg-blue-600 text-white";
       const inactiveClass = "text-gray-400 hover:text-white";
